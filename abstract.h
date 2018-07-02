@@ -1288,8 +1288,6 @@ FUNC(Py)       setobject_new(PyTypeObject *tp, Py args, Py kwargs) {
     if(!so)
         return NULL;
     so->set = seto;
-    if(so->set->size != seto->size)
-        return PySystemError("yh ne");
     return (Py)so;
 }
 ssize_t set_get_entry(rset *so, sizes_t *key, set_entry **next_free) {
