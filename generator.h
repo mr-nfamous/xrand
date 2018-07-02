@@ -352,8 +352,6 @@ IMPL_FUNC(int)    parse_dice_args(dice_arg_cast_t *r, Py args) {
         }
         goto F;
     }
-    if(lo==NULL || hi==NULL)
-        return PySystemError("yhhhhhh"), -1;
     py_int_sort((py_int**)&lo,  (py_int**)&hi);
     lo_size.i = Py_SIZE(lo)<0? -Py_SIZE(lo):Py_SIZE(lo);
     hi_size.i = Py_SIZE(hi)<0? -Py_SIZE(hi):Py_SIZE(hi);
@@ -567,8 +565,6 @@ IMPL_FUNC(size_t) random_partial(RandomObject *rng, uint8_t b) {
     #endif
     if(!check_prand(rng, b))
         prand_renew(rng);
-    if(b>60)
-        return PySystemError("yh"), 0;
     rng_PRAND_RBIT() -= b;
     return ((r = rng_PRAND_UVAL() >> (PBIT-b)), (rng_PRAND_UVAL()<<=b), r);
 }
