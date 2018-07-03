@@ -23,6 +23,28 @@ WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
 OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN 
 IF ADVISEDOF THE POSSIBILITY OF SUCH DAMAGE.
 */
+
+/*
+* Added `load_rng` to fill the ext module's dict. 
+* I hate dicts. It takes me hours to remember how to deal with references
+* with them, so there's an extra rng and 1/2 the methods there should be.
+* RAND_METHODS SHOULD keep a true backup so they can be placed back into
+* the module if they're deleted, yet Py_REFCNT(rng) == 38 after it's done.
+
+* The entire type initialization process needs refactoring, but before that
+* can happen, xrand_auto needs to be refactored. And before THAT can happen,
+* the rv_iter argument structs need to be refactored...which probably leads
+* to another thing and so on and so forth.
+
+* In the interim, this stuff could be fixed now:
+* - Remove pointless error checking remnants
+* - The py_int_from_x series needs to switch from _PyLong_New to __int__
+* - Add the zero argument macros for dice and choices
+* - Do something about the function decorators that have piled up..
+* - The "useless" looking stuff isn't; they're just needed for tests,
+*   otherwise I'd say that could be done. And those tests are mega low priority.
+*
+*/    
 #include "Python.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -1866,6 +1888,86 @@ DATA(PyTypeObject) Random_Type  =  {
 #if defined(RAND_DEBUG) && !defined(RAND_TEST_FUNCS)
 #include "tests.h"
 #endif
+
+DATA(const char) std_tperror[] = "%s() expected %s object, got '%s'";
+
+#define arg_BAD_TYPE(f, ob, bad) \
+    PyTypeError(std_tperror, (#f), Py_TP_NAME(ob), Py_TP_NAME(bad))
+#define NOT_TYPE(o, tp) (Py_TYPE(o) != (&(tp)))
+#define _tp_name2_(_0, _1) Py_TP_NAME(_0), Py_TP_NAME(_1)
+#define Arg_BAD_TYPE(f, o, b) PyTypeError(std_tperror, #f, _tp_name2_(o,b))
+DATA(RandomObject*)RAND = NULL;
+DATA(Py) RAND_METHODS = NULL;
+
+FUNC(Py) reload_rng(Py m, Py self, Py meths) {
+    
+    RandomObject *rng;
+    
+    rng = NULL;
+    
+    return PySystemError("not implemented");
+}
+FUNC(Py) load_rng_impl(Py m) {
+
+    DATA(PyTypeObject)   *tp = &Random_Type;
+    PyMethodDef *ml;
+    Py meth;
+    
+    Py self = NULL;
+    Py meths = NULL;
+    Py r = NULL;
+
+    if(!tp)
+        return PySystemError("Random_Type deallocated");
+    
+    ml = tp->tp_methods; 
+    if(RAND != NULL || RAND_METHODS != NULL)
+        return reload_rng(m, self, meths);
+
+    meths = __dict__();
+    if(!meths)
+        return NULL;
+
+    RAND = random_new(tp, EMPTY_TUPLE, NULL);
+    if(!RAND)
+        goto f;
+    self = (Py)RAND;
+
+    for(; ml->ml_name != NULL; ++ml) {    
+        if(ml->ml_name[0] == '_')
+            continue;
+        meth = PyCFunction_New(ml, self);
+        if(!meth)
+            goto f;
+        if(PyDict_SetItemString(meths, ml->ml_name, meth))
+            goto f;
+        Py_DECREF(meth);
+    }
+    return meths;
+    f:
+    Py_XDECREF(meths);
+    Py_XDECREF(RAND);
+    return NULL;
+}
+FUNC(Py) load_rng(Py m) {
+    Py meths, ns, r=NULL;
+    meths = load_rng_impl(m);
+    if(!meths)
+        return NULL;
+    ns =  PyModule_GetDict(m);
+    if(!ns)
+        return NULL;
+    int v = PyDict_SetItemString(ns, "rng", (Py)RAND);
+    if(_PyDict_MergeEx(ns, meths, 2)|| v) {
+        Py_XDECREF(meths);
+        Py_XDECREF(RAND);
+        return NULL;
+    }
+    RAND_METHODS = meths;
+    
+    prn;
+    
+}
 DATA(PyMethodDef) module_methods[] = {
 #   ifdef RAND_TEST_FUNCS
     RAND_TEST_FUNCS 
@@ -1881,6 +1983,10 @@ DATA(PyMethodDef) module_methods[] = {
     DEBUG_METHOD(N),
     DEBUG_METHOD(T),
     #endif
+
+    #ifdef RAND_DEBUG
+    {"load_rng", (PyCFunction)load_rng, METH_NOARGS, ""},
+    #endif
      {NULL},
 };
 DATA(PyModuleDef) module_ob = {
@@ -1894,6 +2000,8 @@ DATA(PyModuleDef) module_ob = {
     .m_clear = NULL,
     .m_free = NULL
 };
+
+
 TYPE_INIT(setobject) (Py module) {
     static PySequenceMethods set_as_sequence = {
         .sq_length   = (lenfunc)setobject_len,
@@ -1902,7 +2010,8 @@ TYPE_INIT(setobject) (Py module) {
     NumberSet_Type.tp_as_sequence = &set_as_sequence;
     if(setobject_init_meths(&NumberSet_Type))
         return 0;
-    #if defined(INCLUDE_NUMBERSET)    
+    #if defined(INCLUDE_NUMBERSET)
+    Py_INCREF(&NumberSet_Type);
     PyModule_AddObject(module, "NumberSet", (PyObject*)&NumberSet_Type);
     #endif
     return TRUE;
@@ -1925,7 +2034,7 @@ TYPE_INIT(Population) (Py m) {
 TYPE_INIT(setiter) (Py m) {
     return PyType_Ready(&setiter_type) >= 0;
 }
-TYPE_INIT(RandIter) (Py m) {
+TYPE_INIT(randiter) (Py m) {
     return !randiter_init_meths(&RandIter_Type);
 }
 TYPE_INIT(PopEntry) (Py m){
@@ -1937,11 +2046,12 @@ TYPE_INIT(PopEntry) (Py m){
 TYPE_INIT(dice) (Py module) {
     return !dice_init_meths(&Dice_Type);
 }
-TYPE_INIT(Random) (Py module) {
 
+TYPE_INIT(Random) (Py m) {
     if(Random_init_meths(&Random_Type))
         return 0;
-    PyModule_AddObject(module, "Random", (PyObject*)&Random_Type);
+    if(PyModule_AddObject(m, "Random", (PyObject*)&Random_Type) < 0)
+        return 0;
     return TRUE;
 }
 TYPE_INIT(Choices)(Py module) {
@@ -1949,6 +2059,7 @@ TYPE_INIT(Choices)(Py module) {
         return 0;
     return 1;
 }
+
 Py PyInit__xrand(void){
    
     Py self;
@@ -1973,27 +2084,25 @@ Py PyInit__xrand(void){
         goto fail;
     if(!(UNICODE_HASH=(&PyUnicode_Type)->tp_hash))
         goto fail;
-    if(!PopEntry_init_type(self))
-        goto fail;
-    if(!Random_init_type(self))
-        goto fail;
-    if(!Choices_init_type(self))
-        goto fail;
-    if(!dice_init_type(self))
-        goto fail;
-    if(!setiter_init_type(self))
-        goto fail;
-    if(!setobject_init_type(self))
-        goto fail;
-    if(!Population_init_type(self))
-        goto fail;
-    if(!RandIter_init_type(self))
-        goto fail;
+    #define _make_init_(f) f##_init_type
+    #define _call_init_(f) _make_init_(f)(self)
+    #define CALL_TYPE_INIT(tp, add, f) \
+        if(!((add? Py_INCREF(&tp): 1), _call_init_(f))) goto fail 
+    CALL_TYPE_INIT(Random_Type,     1, Random);
+    CALL_TYPE_INIT(PopEntry_Type,   1, PopEntry);
+    CALL_TYPE_INIT(Population_Type, 1, Population); 
+    CALL_TYPE_INIT(Choices_Type,    0, Choices);
+    CALL_TYPE_INIT(RandIter_Type,   0, randiter);   
+    CALL_TYPE_INIT(Dice_Type,       0, dice);
+    CALL_TYPE_INIT(NumberSet_Type,  0, setobject);
+    CALL_TYPE_INIT(setiter_type,    0, setiter);
+    
     PyModule_AddFunctions(self, module_methods);
-
     INIT_SEED.i = system_clock();
-    if(!(((&NumberSet_Type)->tp_as_sequence) && ((&NumberSet_Type)->tp_as_sequence)->sq_length))
-        return NULL;
+    Py fin = load_rng(self);
+    if(!fin)
+        goto fail;
+    Py_DECREF(fin);
     return self;
   fail:
     Py_XDECREF(self);
