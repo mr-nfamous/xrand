@@ -352,6 +352,8 @@ IMPL_FUNC(int)    parse_dice_args(dice_arg_cast_t *r, Py args) {
         }
         goto F;
     }
+    if(lo==NULL || hi==NULL)
+        return PySystemError("yhhhhhh"), -1;
     py_int_sort((py_int**)&lo,  (py_int**)&hi);
     lo_size.i = Py_SIZE(lo)<0? -Py_SIZE(lo):Py_SIZE(lo);
     hi_size.i = Py_SIZE(hi)<0? -Py_SIZE(hi):Py_SIZE(hi);
@@ -456,10 +458,12 @@ IMPL_FUNC(int) wchoice_args_from_pop(Py mp,  choice_arg_cast_t *a) {
         return 0;
     ssize_t const size = Py_SIZE(values);
     Py_DECREF(values);
+    #ifdef RAND_DEBUG
     if(size < 1) {
         wchoice_destr2(a);
         return PySystemError("shoulda raised size err already"), 0;
     }
+    #endif
     pop = PyList_New(size);
     for(ssize_t i=0; i<size; ++i) {
         Py key = PopEntry_ITEM(LIST_ITEMS(a->wc->pop)[i]);
@@ -480,10 +484,12 @@ IMPL_FUNC(int)    parse_choice_args(Object arg, choice_arg_cast_t *a) {
             Py_DECREF(t);
         else
             return 0;
+        #ifdef RAND_DEBUG
         if(Py_SIZE(a->wc->pop)<1) {
             wchoice_destr2(a);
             return PySystemError("shoulda raised size err already"), 0;
         }
+        #endif
         return 'm';
     }
     a->rc->sq = PySequence_new();      
@@ -565,6 +571,10 @@ IMPL_FUNC(size_t) random_partial(RandomObject *rng, uint8_t b) {
     #endif
     if(!check_prand(rng, b))
         prand_renew(rng);
+    #ifdef RAND_DEBUG
+    if(b>60)
+        return PySystemError("> 60 bits provided to random_partial"), 0;
+    #endif
     rng_PRAND_RBIT() -= b;
     return ((r = rng_PRAND_UVAL() >> (PBIT-b)), (rng_PRAND_UVAL()<<=b), r);
 }
@@ -598,9 +608,11 @@ IMPL_FUNC(int)random_new_seed  (RNGSELF) {
     //Make new seed using the splitmix64 generator whose state begins as
     //the time that this module was initialized
     for(int i=0; i<STATE_SIZE; ++i) { 
+        #ifdef RAND_DEBUG
         if(rng_SEED()[i].u)
             return PySystemError("Random instance had non-zero seed when "
                                  "trying to generate a new one"), 0;
+        #endif
         uint64_t v = (++SEED_CTR.u)* 0x9e3779b97f4a7c15 + INIT_SEED.u;
         v = (v ^ (v >> 30)) * 0xbf58476d1ce4e5b9;
         v = (v ^ (v >> 27)) * 0x94d049bb133111eb;
@@ -655,8 +667,10 @@ IMPL_FUNC(double) random_safe_double(RNGSELF) {
 }
 IMPL_FUNC(int)    random_jump      (RNGSELF) {
     static const uint64_t jump[] = { JUMP_CONSTS };
+    #ifdef RAND_DEBUG
     if((sizeof(jump)/sizeof(*jump))!= STATE_SIZE)
         return PySystemError("jump constant / state size mismatch"),0;
+    #endif
     uint64_t s0=0, s1=0;
     for(int i=0; i<STATE_SIZE; ++i)
         for(int j=0; j<64; ++j) {
