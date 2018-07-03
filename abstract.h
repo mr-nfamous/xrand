@@ -28,6 +28,7 @@
 #define _py_slot_(slot) tp_as_##slot
 #define Py_TP_ALLOC(ob, tp, items) ((ob*)((tp)->tp_alloc((tp), (items))))
 #define Py_TP_NAME(ob) (Py_TYPE((ob))->tp_name)
+#define Py_TP_DICT(ob) (Py_TYPE(ob)->tp_dict)
 #define Py_TP_REPR(ob) (Py_TYPE(ob)->tp_repr)
 #define CALL_TP_REPR(ob) (Py_TYPE(ob)->tp_repr((ob)))
 #define Py_TP_METHODS(ob) (Py_TYPE(ob)->tp_methods)
