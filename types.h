@@ -1,8 +1,6 @@
 
 #ifndef XRAND_TYPES_H
 #define XRAND_TYPES_H
-#define RANDOMNAME xrand
-#define _MODULE_ randommodule
 #define _QUALNAME_STR1_IMPL_(x) #x
 #define _QUALNAME_STR1_(x) _QUALNAME_STR1_IMPL_(x)
 #define _QUALNAME_IMPL_(tp) _QUALNAME_STR1_(_MODULE_.tp)
