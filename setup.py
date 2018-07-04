@@ -2,33 +2,16 @@
 from distutils.core import setup, Extension
 from warnings import warn
 
-# xrand options: modify these constants before compiling
-# most of this probably doesn't work atm (if any does at all)
+from settings import *
 
-Ext_MODULE = 'xrand'
-Py_MODULE = 'brand' # test module to avoid name conflicts
-
-# debug mode: nothing works unless RAND_DEBUG is True
-RAND_DEBUG        = None
-RAND_TEST_FUNCS   = False
-DEBUG_PARSE_ARGS  = False
-
-# auto generate source code: RAND_AUTO must be True
-RAND_AUTO         = None
-SAVE_RV_AUTOREPR  = False # builds tp_repr for iter_rv funcs
-SAVE_AUTO_H       = False # builds auto.h
-
-# without FORCE_GENERATOR the generator chosen depends on platform
-# will break if used right now
-XOROSHIRO         = 'xoroshiro128'
-XORSHIFT          = 'xorshift128'
-FORCED_GENERATOR  = None # must be XOROSHIRO or XORSHIFT
-INCLUDE_NUMBERSET = False
-
-COMPILE_ARGS = []
-MACROS = {'_MODULE_': Ext_MODULE}
-
-
+def assert_defined(macro):
+    if macro not in MACROS:
+        raise TypeError(f'{macro!r} should not be defined')
+def assert_undefined(macro):
+    if macro in MACROS:
+        raise TypeError(f'{macro!r} should have been defined')
+def define(macro, *value):
+    MACROS[macro] = (None, *value)[len(value)]
 
 if RAND_AUTO:
     from xrand_auto import *
@@ -37,30 +20,48 @@ if RAND_AUTO:
     if SAVE_AUTO_H:
         auto2()
 
-_forced = None
-if FORCED_GENERATOR == XOROSHIRO:
-    _forced = MACROS['RNG_OVERRIDE'] = XOROSHIRO
-elif FORCED_GENERATOR == XORSHIFT:
-    _forced = MACROS['RNG_OVERRIDE'] = XORSHIFT
-elif FORCED_GENERATOR:
+        
+if (XOROSHIRO != 'xoroshiro128' or XORSHIFT != 'xorshift128'):
+    raise ValueError("core generators renamed")
+
+if RNG_OVERRIDE == XOROSHIRO:
+    define('RNG_OVERRIDE', XOROSHIRO)
+    define('XSR_GENERATOR')
+    
+elif RNG_OVERRIDE == XORSHIFT:
+    define('RNG_OVERRIDE', XORSHIFT)
+    define('XS_GENERATOR')
+
+elif RNG_OVERRIDE is not None:
     raise TypeError(f"invalid generator specified: {FORCED_GENERATOR!r}")
 
-_debug_mode = RAND_DEBUG is not None
-_opt = None
-_fail = False
-if RAND_TEST_FUNCS:
-    _opt = MACROS['RAND_TEST_FUNCS'] = None
-if DEBUG_PARSE_ARGS:
-    _opt = MACROS['DEBUG_PARSE_ARGS'] = None
-if _opt and not _debug_mode:
-    raise TypeError("cannot use debug opts without defining RAND_DEBUG")
 
-MACROS = list(MACROS.items())
+if RAND_TEST_FUNCS:
+    define('RAND_TEST_FUNCS')
+    
+if DEBUG_PARSE_ARGS:
+    define('DEBUG_PARSE_ARGS')
+    
+if not RAND_DEBUG:
+    assert_undefined('RAND_DEBUG')
+    assert_undefined('RAND_TEST_FUNCS')
+    assert_undefined('DEBUG_PARSE_ARGS')
+else:
+    define('RAND_DEBUG')
+    
+if INCLUDE_NUMBERSET:
+    define('INCLUDE_NUMBERSET')
+if INCLUDE_PROFILER:
+    define('INCLUDE_PROFILER')
+
+    
+DEFINE_MACROS = list(MACROS.items())
+assert_defined('_MODULE_')
 
 if 1:            
     xrandmodule = Extension(Ext_MODULE,
                             ['_xrandmodule.c'],
-                            define_macros=MACROS,
+                            define_macros=DEFINE_MACROS,
                             extra_compile_args=COMPILE_ARGS)
     setup(
         name=Py_MODULE,
