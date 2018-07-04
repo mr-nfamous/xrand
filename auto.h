@@ -261,40 +261,82 @@ static char Random_choices_doc[] = (
 \n\
     This process of converting Python objects to more fundamental data\n\
     types is oftentimes the most expensive segment of a function call.\n\
+    Thus, keeping the arguments in their most fundamental types can\n\
+    significantly increase performance if multiple function calls\n\
+    taking the same arguments is needed, especially if all iteration\n\
+    is done at the C level.\n\
 \n\
-    By keeping the more fundamental representation in memory we\n\
-    can gain a significant performance boost when we know the population\n\
-    we're sampling doesn't change.\n\
+    `choices` objects have the following methods:\n\
 \n\
-    `choices` objects have 3 methods:\n\
-    * next()\n\
-    * next_n(n)\n\
-    * sample()\n\
+    * next():\n\
+    Identical to:\n\
+    >>> f = partial(rng.select, population)\n\
+    >>> f()\n\
 \n\
-    `next()` : identical to `Random.select(population)`\n\
+    * next_n(n):\n\
+    Identical to:\n\
+    >>> f = partial(rng.select, population)\n\
+    >>> [f() for i in range(n)]\n\
 \n\
-    `next_n(n)` : identical to [rng.select(pop) for i in range(n)]\n\
+    * sample(k):\n\
+    Identical to:\n\
+    >>> f= partial(rng.sample, population)\n\
+    >>> f(k)\n\
+    Note: only between 5-10% faster than sample. Including\n\
+    `choices` construction time, takes many calls to reach\n\
+    parity with just using `sample`\n\
 \n\
-    `sample(k)` : identical to `Random.sample(population, k)`\n\
+    along with the following data descriptors:\n\
+\n\
+    * ro.population:\n\
+    The population being stored. For dict based `choices`\n\
+    objects it returns two lists; the first are all unique\n\
+    elements. The other is a list equivalent to\n\
+    accumulate(p.values()).\n\
+\n\
+    For ranges, strings, tuples, and lists, the original\n\
+    sequence is returned. Everything else will have been\n\
+    converted to a  list.\n\
+\n\
+    * ro.size:\n\
+    Population size. For dicts, this is the effective count\n\
+    of  the members in the population (sum(pop.values())).\n\
+    For everything else it is simply the length of whatever\n\
+    sequence representation `choices`  decided to convert it to.\n\
 \n\
     The caveats for `Random.select` and `Random.sample` still apply.\n\
 \n\
-    In addition, they have the following data descriptors:\n\
+    Here's some Python level benchmarking between this and random.py:\n\
+    (number of random.choice(pop) equivalent calls per second)\n\
 \n\
-    `population`:\n\
-    The population being stored. For dict based `choices` objects\n\
-    it returns two lists; the first are all unique elements.\n\
-    The other is a list equivalent to accumulate(p.values()).\n\
+    >>> from stex import e\n\
+    >>> from random import choice as pychoice, sample as pysample\n\
+    >>> from xrand import select, choices, sample\n\
+    >>> pop = range(123456)\n\
+    >>> r = e('pychoice(pop)'); print(f'{r:_.0f}')\n\
+    654_141\n\
+    >>> r = e('select(pop)'); print(f'{r:_.0f}')\n\
+    8_392_386\n\
+    >>> f = choices(pop).next; r = e('f()'); print(f'{r:_.0f}')\n\
+    11_400_663 \n\
+    >>> r = e('[pychoice(pop) for i in range(100)]')*100; print(f'{r:_.0f}')\n\
+    644_486\n\
+    >>> r = e('[select(pop) for i in range(100)]')*100; print(f'{r:_.0f}')\n\
+    6_920_097\n\
+    >>> f = choices(pop).next_n; r = e('f(100)')*100; print(f'{r:_.0f}')\n\
+    22_869_879\n\
 \n\
-    For ranges, strings, tuples, and lists, the original sequence\n\
-    is returned. Everything else will have been converted to a\n\
-    list.\n\
+    >>> cards = itertools.product('HSDC',(*'23456789','10',*'JKQA'))\n\
+    >>> cards = [f'{a}{b}' for a,b in cards]\n\
+    >>> r = e('pysample(cards, 20)'); print(f'{r:_.0f}')\n\
+    29_768\n\
+    >>> r = e('sample(cards, 20)'); print(f'{r:_.0f}')\n\
+    1_165_779\n\
 \n\
-    `sizes`:\n\
-    Population size. For dicts, this is the effective count of\n\
-    the members in the population. For everything else it is simply\n\
-    the length of whatever sequence representation `choices`\n\
-    decided to convert it to."
+    `select(pop)`  -> 13x faster\n\
+    `.next()       -> 17x faster\n\
+    `.next_n(100)` -> 35x faster\n\
+    `sample(cards) -> 39x faster (to be fair, varies 20-50x)"
 );
 PyObject *Random_dice(RandomObject *rng, PyObject *args);
 static char Random_dice_doc[] = (
@@ -303,13 +345,24 @@ static char Random_dice_doc[] = (
     Get a new `dice' object that rolls random ints from [a, b]\n\
 \n\
     This object has 2 methods:\n\
-    * next()\n\
-    * next_n(n)\n\
 \n\
-    `next` behaves identically to `Random.rand_int`, returning\n\
-    random integers between a and b (including a and b)\n\
+    * next():\n\
+    Identical to:\n\
+    >>> f = partial(rng.rand_int, a, b)\n\
+    >>> f()\n\
 \n\
-    `next_n` is equivalent to [rand_int(a, b) for i in range(n)]"
+    * next_n(n):\n\
+    Identical to:\n\
+    >>> f = partial(rng.select, a, b)\n\
+    >>> [f() for i in range(n)]\n\
+\n\
+    along with the following data descriptors:\n\
+\n\
+    * ro.max:\n\
+    Highest roll of the dice\n\
+\n\
+    * ro.min:\n\
+    Lowest roll of the dice"
 );
 PyObject *Random_flip(RandomObject *rng, PyObject *arg);
 static char Random_flip_doc[] = (
@@ -497,7 +550,11 @@ static char Random_rand_index_doc[] = (
 \n\
     >>> from ctypes import *; 2**(sizeof(c_size_t) * 8)-1\n\
 \n\
-    In general this is 2**64-1 for 64 and 2**32 for 32 bit platforms"
+    In general this is 2**64-1 for 64 and 2**32 for 32 bit platforms.\n\
+\n\
+    Because the result is from the half-open interval [0, i) and\n\
+    since 2**bits-1 is the maximum value `i` can be without an overflow\n\
+    error, 2**bits-1 can never be a return value from this function."
 );
 PyObject *Random_rand_int(RandomObject *rng, PyObject *args);
 static char Random_rand_int_doc[] = (
@@ -827,8 +884,7 @@ static char Random_state_doc[] = (
     state()\n\
     Inspect the current state array of the rng"
 );
-static int Random_init_meths(PyTypeObject *tp) {
-    DATA(PyMethodDef) ml[] = {
+DATA(PyMethodDef) Random_ml[] = {
         {"__copy__", (PyCFunction)Random___copy__, METH_NOARGS, Random___copy___doc},
         {"__getnewargs_ex__", (PyCFunction)Random___getnewargs_ex__, METH_NOARGS, Random___getnewargs_ex___doc},
         {"choices", (PyCFunction)Random_choices, METH_O, Random_choices_doc},
@@ -868,14 +924,15 @@ static int Random_init_meths(PyTypeObject *tp) {
         {"split", (PyCFunction)Random_split, METH_VARARGS, Random_split_doc},
         {NULL}
     };
-    DATA(PyGetSetDef) gs[] = {
+DATA(PyGetSetDef) Random_gs[] = {
         {"pstate", (getter)Random_pstate, (setter)NULL, Random_pstate_doc},
         {"seed", (getter)Random_seed, (setter)NULL, Random_seed_doc},
         {"state", (getter)Random_state, (setter)NULL, Random_state_doc},
         {NULL}
     };
-    tp->tp_methods = ml;
-    tp->tp_getset = gs;
+static int Random_init_meths(PyTypeObject *tp) {
+    tp->tp_methods = Random_ml;
+    tp->tp_getset = Random_gs;
     return PyType_Ready(tp) < 0;
 }
 PyObject *choices_next(ChoicesObject *ro);
@@ -896,17 +953,32 @@ static char choices_sample_doc[] = (
     sample(k) -> object\n\
     Sample `k` members of the stored population"
 );
-
-static int choices_init_meths(PyTypeObject *tp) {
-    DATA(PyMethodDef) ml[] = {
+PyObject *choices_population(ChoicesObject *ro);
+static char choices_population_doc[] = (
+"\
+    population() -> object\n\
+    Inspect the choices object's `population`"
+);
+PyObject *choices_size(ChoicesObject *ro);
+static char choices_size_doc[] = (
+"\
+    size() -> object\n\
+    Get the total number of members in the population"
+);
+DATA(PyMethodDef) choices_ml[] = {
         {"next", (PyCFunction)choices_next, METH_NOARGS, choices_next_doc},
         {"next_n", (PyCFunction)choices_next_n, METH_O, choices_next_n_doc},
         {"sample", (PyCFunction)choices_sample, METH_O, choices_sample_doc},
         {NULL}
     };
-    DATA(PyGetSetDef) gs[] = {{NULL}};
-    tp->tp_methods = ml;
-    tp->tp_getset = NULL;
+DATA(PyGetSetDef) choices_gs[] = {
+        {"population", (getter)choices_population, (setter)NULL, choices_population_doc},
+        {"size", (getter)choices_size, (setter)NULL, choices_size_doc},
+        {NULL}
+    };
+static int choices_init_meths(PyTypeObject *tp) {
+    tp->tp_methods = choices_ml;
+    tp->tp_getset = choices_gs;
     return PyType_Ready(tp) < 0;
 }
 PyObject *dice_next(DiceObject *ro);
@@ -921,16 +993,31 @@ static char dice_next_n_doc[] = (
     next_n(n) -> object\n\
     Generate a list of `n` random integers based on the stored range"
 );
-
-static int dice_init_meths(PyTypeObject *tp) {
-    DATA(PyMethodDef) ml[] = {
+PyObject *dice_max(DiceObject *ro);
+static char dice_max_doc[] = (
+"\
+    max()\n\
+    Highest roll of the die"
+);
+PyObject *dice_min(DiceObject *ro);
+static char dice_min_doc[] = (
+"\
+    min()\n\
+    Lowest roll of the dice"
+);
+DATA(PyMethodDef) dice_ml[] = {
         {"next", (PyCFunction)dice_next, METH_NOARGS, dice_next_doc},
         {"next_n", (PyCFunction)dice_next_n, METH_O, dice_next_n_doc},
         {NULL}
     };
-    DATA(PyGetSetDef) gs[] = {{NULL}};
-    tp->tp_methods = ml;
-    tp->tp_getset = NULL;
+DATA(PyGetSetDef) dice_gs[] = {
+        {"max", (getter)dice_max, (setter)NULL, dice_max_doc},
+        {"min", (getter)dice_min, (setter)NULL, dice_min_doc},
+        {NULL}
+    };
+static int dice_init_meths(PyTypeObject *tp) {
+    tp->tp_methods = dice_ml;
+    tp->tp_getset = dice_gs;
     return PyType_Ready(tp) < 0;
 }
 PyObject *randiter_take(randiter *ri);
@@ -940,13 +1027,13 @@ static char randiter_take_doc[] = (
     Call the iterable's __next__ method without consuming an item"
 );
 
-static int randiter_init_meths(PyTypeObject *tp) {
-    DATA(PyMethodDef) ml[] = {
+DATA(PyMethodDef) randiter_ml[] = {
         {"take", (PyCFunction)randiter_take, METH_NOARGS, randiter_take_doc},
         {NULL}
     };
-    DATA(PyGetSetDef) gs[] = {{NULL}};
-    tp->tp_methods = ml;
+DATA(PyGetSetDef) randiter_gs[] = {{NULL}};
+static int randiter_init_meths(PyTypeObject *tp) {
+    tp->tp_methods = randiter_ml;
     tp->tp_getset = NULL;
     return PyType_Ready(tp) < 0;
 }
@@ -971,20 +1058,21 @@ static char setobject_update_doc[] = (
 PyObject *setobject_mask(setobject *so);
 static char setobject_mask_doc[] = (
 "\
-    mask()"
+    mask()\n\
+    The size of the hash table (where `size` is the max entries)"
 );
-static int setobject_init_meths(PyTypeObject *tp) {
-    DATA(PyMethodDef) ml[] = {
+DATA(PyMethodDef) setobject_ml[] = {
         {"__sizeof__", (PyCFunction)setobject___sizeof__, METH_NOARGS, setobject___sizeof___doc},
         {"add", (PyCFunction)setobject_add, METH_O, setobject_add_doc},
         {"update", (PyCFunction)setobject_update, METH_O, setobject_update_doc},
         {NULL}
     };
-    DATA(PyGetSetDef) gs[] = {
+DATA(PyGetSetDef) setobject_gs[] = {
         {"mask", (getter)setobject_mask, (setter)NULL, setobject_mask_doc},
         {NULL}
     };
-    tp->tp_methods = ml;
-    tp->tp_getset = gs;
+static int setobject_init_meths(PyTypeObject *tp) {
+    tp->tp_methods = setobject_ml;
+    tp->tp_getset = setobject_gs;
     return PyType_Ready(tp) < 0;
 }

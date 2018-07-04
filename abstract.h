@@ -198,22 +198,23 @@ void *__var_object__(PyTypeObject *tp, size_t const size) {
     
     /* does not zero out the variable length part */
     
-    char *mem;
+    py_alias_t mem;
+    //char *mem;
     
     size_t const head  = (size_t) tp->tp_basicsize;
     size_t const item  = (size_t) tp->tp_itemsize;
     size_t const tail  = size * item;
     size_t const total = _Py_SIZE_ROUND_UP(head+tail, SIZEOF_VOID_P);
 
-    mem = PyObject_Malloc(total);
-    if(!mem)
-        return PyErr_NoMemory();
+    mem.any = PyObject_Malloc(total);
+    if(!mem.any)
+        return (void*)PyErr_NoMemory();
         
-    memset(mem, 0, offsetof(PyVarObject, ob_size));
-    PyObject_INIT(mem, tp);
-    Py_SIZE(mem) = (ssize_t)size;
+    memset(mem.any, 0, offsetof(PyVarObject, ob_size));
+    PyObject_INIT(mem.ob, tp);
+    mem.var->ob_size = (ssize_t)size;
     
-    return mem;
+    return mem.any;
 }
 FAST_FUNC(PySequence) PySequence_new(void) {
     PySequence const r = {NULL, -1, NULL};
@@ -601,9 +602,10 @@ FAST_FUNC(Object ) py_int_from_digit(digit d, int sign) {
     return py_long_new(1, &d, sign);
 }
 #define BLANK_INT(size) ((py_int*)(__var_object__(&PyLong_Type, (size))))
+//#define BLANK_INT(size) (__var_object__(&PyLong_Type, size)).any
 FAST_FUNC(Object ) py_int_from_ssize_t(ssize_t n) {
     SIZE_MASKS;
-    py_int *r;
+    py_alias_t r;
     sizes_t v;
     bool const s = n < 1;
     if(s) {
@@ -616,23 +618,39 @@ FAST_FUNC(Object ) py_int_from_ssize_t(ssize_t n) {
         Py_RETURN_SMALL(n);
     v.i = n;    
     A:
-    r = _PyLong_New(NDMASKS[2] & v.u? 3: (NDMASKS[1] & v.u? 2: 1));
-    if(!r)
+    ssize_t const ndigits = NDMASKS[2] & v.u? 3: (NDMASKS[1] & v.u? 2: 1);
+    // Not really sure what's going on here with _PyLong_New.
+    // Usually, 1-3% slower than __var_object__ then suddenly it's 10% faster
+    //r = __var_object__(&PyLong_Type, ndigits);
+    r.int_ = _PyLong_New(ndigits);
+    if(!r.any)
         return NULL;
-    for(int i=0; v.u; ++i, v.u >>= PyLong_SHIFT)
-        r->ob_digit[i] = (digit)(v.u & PyLong_MASK);
+    int i = 0;
+    switch(ndigits) {  
+        case 3: 
+            r.int_->ob_digit[i++] = (digit)(v.u & PyLong_MASK);
+            v.u >>= PyLong_SHIFT;
+        case 2:
+            r.int_->ob_digit[i++] = (digit)(v.u & PyLong_MASK);
+            v.u >>= PyLong_SHIFT;
+        default:
+            r.int_->ob_digit[i] = (digit)(v.u & PyLong_MASK);
+    }
     if(s)
-        Py_SIZE(r) = -Py_SIZE(r);
-    return (Object )r;
+        r.var->ob_size = - r.var->ob_size;
+    return r.ob;
 }
 FAST_FUNC(Object) py_int_from_size_t(size_t n) {
     SIZE_MASKS;
     py_int *r;
     if(n < 257)
         Py_RETURN_SMALL(n);
-    r = BLANK_INT(NDMASKS[2] & n? 3: (NDMASKS[1] & n? 2: 1));
+                            
+    ssize_t const ndigits = NDMASKS[2] & n? 3: (NDMASKS[1] & n? 2: 1);
+    r = _PyLong_New(ndigits);
     if(!r)
         return NULL;
+    // duff's device not actually helping here...
     for(size_t i=0, v=n;  v;  ++i,  v>>=PyLong_SHIFT)
         OB_DIGITS(r)[i] = (digit)(v & PyLong_MASK);
     return (Object)r;

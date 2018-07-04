@@ -1,3 +1,4 @@
+
 /*
 Copyright 2018 Dan Snider
 
@@ -903,16 +904,17 @@ FUNC(Py) choices_sample (CHOICESSELF, Py arg) {
     PyObject_Free(a.indices);
     return r;
 }
-FUNC(Py) choices_sum    (CHOICESSELF) {
+
+FUNC(Py) choices_size    (CHOICESSELF) {
     if(ro->next_n == rand_wchoice)
         switch(Choices_WC_TYPE(ro)) {
             case 'd': return __float__(Choices_WSUM_D(ro));
             case 'i': return py_int_from_size_t(Choices_WSUM_I(ro));
             default: return PySystemError("choices object has invalid wc type");
         }
-    return py_int_from_size_t(Choices_RSUM(ro));
+    return py_int_from_size_t(pyseq_SIZE(&Choices_RC_ARGS(ro)->sq));
 }
-FUNC(Py) choices_pop    (CHOICESSELF) {
+FUNC(Py) choices_population    (CHOICESSELF) {
     Py  r;
     choice_arg_cast_t ca = {ro->args.any};
     sample_args a;
@@ -921,7 +923,7 @@ FUNC(Py) choices_pop    (CHOICESSELF) {
         a.wc = ca.wc;
         r = PyList_New(Py_SIZE(a.wc->pop));
         if(!r)
-            return NULL;
+            return NULL; 
         switch(a.wc->bisect_as) {
             case 'i':
                 ssize_t *wi = (ssize_t*)a.wc->mem;//weights;
@@ -992,6 +994,26 @@ FUNC(Py)  dice_calc_hi_lo(DiceObject *ro, Py *lo) {
         return (*lo=PySystemError("invalid dice generator flag"));
     *lo = Py_NEWREF(ro->args.slow->big_base);
     return PyNumber_Add(ro->args.slow->big_base, ro->args.slow->big_width);
+}
+FUNC(Py) dice_max(DiceObject *ro) {
+    Py lo=NULL, hi, r;
+    
+    if(!(hi = dice_calc_hi_lo(ro, &lo)))
+        r = NULL;
+    else 
+        r = hi;
+    Py_XDECREF(lo);
+    return r;
+}
+FUNC(Py) dice_min(DiceObject *ro) {
+    Py lo=NULL, hi, r;
+    
+    if(!(hi = dice_calc_hi_lo(ro, &lo)))
+        r = NULL;
+    else
+        r = lo;
+    Py_XDECREF(hi);
+    return r;
 }
 FUNC(Py)  dice_repr(Py self) {
     DiceObject *ro = (DiceObject*)self;
@@ -1888,17 +1910,12 @@ DATA(PyTypeObject) Random_Type  =  {
 #if defined(RAND_DEBUG) && !defined(RAND_TEST_FUNCS)
 #include "tests.h"
 #endif
-
-DATA(const char) std_tperror[] = "%s() expected %s object, got '%s'";
-
-#define arg_BAD_TYPE(f, ob, bad) \
-    PyTypeError(std_tperror, (#f), Py_TP_NAME(ob), Py_TP_NAME(bad))
-#define NOT_TYPE(o, tp) (Py_TYPE(o) != (&(tp)))
-#define _tp_name2_(_0, _1) Py_TP_NAME(_0), Py_TP_NAME(_1)
-#define Arg_BAD_TYPE(f, o, b) PyTypeError(std_tperror, #f, _tp_name2_(o,b))
 DATA(RandomObject*)RAND = NULL;
 DATA(Py) RAND_METHODS = NULL;
-
+#include "perf.h"
+#ifndef INCLUDE_PROFILER
+#error no profiler
+#endif  
 FUNC(Py) reload_rng(Py m, Py self, Py meths) {
     
     RandomObject *rng;
@@ -1970,9 +1987,9 @@ FUNC(Py) load_rng(Py m) {
 }
 DATA(PyMethodDef) module_methods[] = {
 #   ifdef RAND_TEST_FUNCS
-    RAND_TEST_FUNCS 
+    RAND_TEST_FUNCS     
     {"py_stdev", (PyCFunction)py_stdev, METH_O, NULL},
-#   endif
+#   endif  
     #ifdef DEBUG_PARSE_ARGS
     DEBUG_METHOD(rand64_t),
     DEBUG_METHOD(o),
@@ -1984,9 +2001,12 @@ DATA(PyMethodDef) module_methods[] = {
     DEBUG_METHOD(T),
     #endif
 
-    #ifdef RAND_DEBUG
-    {"load_rng", (PyCFunction)load_rng, METH_NOARGS, ""},
+    #ifdef INCLUDE_PROFILER
+    {"perf", (PyCFunction)call_perf, METH_VARARGS, 
+        ("perf(callable[, args, kws]) \n"
+        "Number of times callable(*args, **kws) can be called per second")},
     #endif
+    
      {NULL},
 };
 DATA(PyModuleDef) module_ob = {

@@ -8,9 +8,9 @@
 #define SEED_BITS (8*SEED_BYTES)
 #define SEED_BYTES (msizeof(RandomObject, seed))
 #define RANDOM_SIZE msizeof(RandomObject, seed) + msizeof(RandomObject, state)
+#define STATE_SIZE 2
+#define SEED_SIZE offsetof(RandomObject, seed)-offsetof(RandomObject,state)
 #ifndef RNG_OVERRIDE
-#   define STATE_SIZE 2
-#   define SEED_SIZE offsetof(RandomObject, seed)-offsetof(RandomObject,state)
 #   ifdef RAND32
 #       define XS_GENERATOR
 #       define random_next xorshift128
@@ -18,12 +18,10 @@
 #       define XSR_GENERATOR
 #       define random_next xoroshiro128
 #   endif
-#elif (!(defined(STATE_SIZE) && defined(SEED_SIZE)))
-#       error("If the default RNG is overidden the STATE_SIZE and SEED_SIZE"\
-        "macros must be defined.
 #else
 #   define random_next RNG_OVERRIDE
 #endif
+
 /*
 The recommended constants for xoroshiro128+ were changed in 2018.
 Keeping the old ones here for posterity.
@@ -273,7 +271,7 @@ typedef struct ChoicesObject {
 #define Choices_NEXT(o)    _Co_next_(o)
 #define Choices_WSUM_D(o)  _Co_wsum_(o).d
 #define Choices_WSUM_I(o)  _Co_wsum_(o).N
-#define Choices_RSUM(o)    _Co_rsum_(o)
+// doesn't work #define Choices_RSUM(o)    _Co_rsum_(o)
 #define Choices_NEXT_RCHOICE(o, r, n) _Co_call_next_(o, _Co_rc_args_, r, n)
 #define Choices_NEXT_WCHOICE(o, r, n) _Co_call_next_(o, _Co_wc_args_, r, n)
 #define Choices_NEXT_RSAMPLE(o, r, n) _Co_call_next_(o, _Co_rs_args_, r, n)
