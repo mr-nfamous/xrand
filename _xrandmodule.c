@@ -25,7 +25,7 @@ OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
 IF ADVISEDOF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-/*
+/* - update -
 * Added `load_rng` to fill the ext module's dict. 
 * I hate dicts. It takes me hours to remember how to deal with references
 * with them, so there's an extra rng and 1/2 the methods there should be.
@@ -46,6 +46,18 @@ IF ADVISEDOF THE POSSIBILITY OF SUCH DAMAGE.
 *   otherwise I'd say that could be done. And those tests are mega low priority.
 *
 */    
+
+/* - update (7/4/18) -
+Not even going to try to a versioning system with as much stuff that needs fixing...
+
+* Fixed name (was _xrand, now is xrand)
+* Added the correct setup.py file 
+* Fixed the ability to configure which generator is used (see settings.py)
+* slight change to py_int_from_ssize_t
+* added missing descriptors for dice and choices
+* added a simple speed test function
+* uploaded xrand_auto.py which automatically generates the documentation and several other things
+*/
 #include "Python.h"
 #include <stdbool.h>
 #include <stdint.h>
