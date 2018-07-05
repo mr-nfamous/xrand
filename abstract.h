@@ -640,7 +640,7 @@ FAST_FUNC(Object ) py_int_from_ssize_t(ssize_t n) {
         r.var->ob_size = - r.var->ob_size;
     return r.ob;
 }
-FAST_FUNC(Object) py_int_from_size_t(size_t n) {
+FAST_FUNC(Object ) py_int_from_size_t(size_t n) {
     SIZE_MASKS;
     py_int *r;
     if(n < 257)
@@ -665,7 +665,7 @@ FAST_FUNC(Object ) py_int_from_rand64_t(rand64_t a) {
     /*
     For simplicity, this function acts as if a is an signed integer.
     
-    On 32 bit builds if the rand64_t was initalized as a negative ssize_t, 
+    On 32 bit builds if the rand64_t was initialized as a negative ssize_t, 
     it must be cast to int64_t before converting with this function so that
     the high 32-bits are non-zero and it can recognize it as a negative number.
     */
@@ -689,14 +689,23 @@ FAST_FUNC(Object ) py_int_from_rand64_t(rand64_t a) {
     ++d;
     py_int *v = _PyLong_New(d);
     digit *p = v->ob_digit;
-    while(d) {
-        --d;
-        *p++ = (digit)(a.u &PyLong_MASK);
-        a.u >>= PyLong_SHIFT;
+    switch(d) {
+        #ifdef RAND32
+        case 5:
+            (*p=(digit)(a.u &PyLong_MASK)), ++p, a.u >>= PyLong_SHIFT;
+        case 4:
+            (*p=(digit)(a.u &PyLong_MASK)), ++p, a.u >>= PyLong_SHIFT;
+        #endif
+        case 3:
+            (*p=(digit)(a.u &PyLong_MASK)), ++p, a.u >>= PyLong_SHIFT;
+        case 2:
+            (*p=(digit)(a.u &PyLong_MASK)), ++p, a.u >>= PyLong_SHIFT;
+        default:
+            (*p=(digit)(a.u &PyLong_MASK));
     }
     if(s)
         Py_SIZE(v) = -Py_SIZE(v);
-    return (Object )v;
+    return (Py)v;
 }
 FAST_FUNC(Object ) py_int_from_number(Object n) {
     /*
