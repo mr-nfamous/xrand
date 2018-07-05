@@ -687,22 +687,20 @@ IMPL_FUNC(void)   random_digits(RNGSELF, digit *p, size_t n) {
 #   else
 #       define FAST_DIGITS(x) (x&D0) | (x&D1) << 2
 #   endif
-   A:
-    if(!n)
+A:
+    if(!n) 
         return;
-    x.u = random_NEXT();
-    if(n<=DPR)
-        goto B;
-    ((rand64_t*)p)->u = FAST_DIGITS(x.u);
-    ++((rand64_t*)p);
-    n -= DPR;
-    goto A;
-  B:
-    *p++ = (digit)x.ud.d0;
-    if(n==1)
-        return;
-    x.u >>= PyLong_SHIFT;
-    goto B;
+    x.u = random_next(rng) >> 4;   
+    if(n>=DPR) {
+        ((rand64_t*)p)->u = FAST_DIGITS(x.u);
+        ++((rand64_t*)p);
+        n -= DPR;
+        goto A;
+    }
+    while(n--) {
+        *p++ = (digit)x.ud.d0;
+        x.u>>=PyLong_SHIFT;
+    }
 }
 IMPL_FUNC(void)   random_bytes(RNGSELF, uint8_t *p, size_t n) {
     /*
