@@ -25,7 +25,7 @@ OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
 IF ADVISEDOF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-/* - update -
+/*
 * Added `load_rng` to fill the ext module's dict. 
 * I hate dicts. It takes me hours to remember how to deal with references
 * with them, so there's an extra rng and 1/2 the methods there should be.
@@ -46,19 +46,8 @@ IF ADVISEDOF THE POSSIBILITY OF SUCH DAMAGE.
 *   otherwise I'd say that could be done. And those tests are mega low priority.
 *
 */    
-
-/* - update (7/4/18) -
-Not even going to try to a versioning system with as much stuff that needs fixing...
-
-* Fixed name (was _xrand, now is xrand)
-* Added the correct setup.py file 
-* Fixed the ability to configure which generator is used (see settings.py)
-* slight change to py_int_from_ssize_t
-* added missing descriptors for dice and choices
-* added a simple speed test function
-* uploaded xrand_auto.py which automatically generates the documentation and several other things
-*/
 #include "Python.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <math.h> 
@@ -73,8 +62,6 @@ DATA(double const) RAND_FLOAT_MAX = 0.9999999999999998;
 DATA(double const, PI) = 3.141592653589793;
 DATA(double const, TAU) = 6.283185307179586;
 DATA(char, SEED_BITS_STR)[3];
-DATA(char, SAMPLE_LIMIT_STR)[128] = {0};
-DATA(size_t, SAMPLE_LIMIT) = 1000000;
 DATA(rand64_t) INIT_SEED;
 DATA(rand64_t) SEED_CTR;
 DATA(const int8_t, BIT_LENGTHS[]) = { 
@@ -115,16 +102,16 @@ DATA(richcmpfunc) dict_richcomp;
     c_str bad_wint   = "sum of integer-based weights overflow C size_t";
 #endif
 #include "abstract.h"
-FUNC(PyTypeObject*) get_tp_layout(Py ob) {
-    PyTypeObject* base = Py_TYPE(ob);
+FUNC(py_type*) get_tp_layout(Py ob) {
+    py_type* base = Py_TYPE(ob);
     while(base && PyType_HeapType(base)) {
-        PyTypeObject *next = base->tp_base;
+        py_type *next = base->tp_base;
         base = next;
     }
     return base;
 }
 FUNC(popentry*) new_popentry(Py key) {
-    PyTypeObject *base;
+    py_type *base;
     popentry *entry;
     if(PopEntry_Check(key))
         return (popentry*)Py_NEWREF(key);
@@ -149,7 +136,7 @@ FUNC(popentry*) new_popentry(Py key) {
     PopEntry_COMP(entry) = base->tp_richcompare;
     return entry;
 }
-FUNC(Py) popentry_new(PyTypeObject* tp, Py args, Py kws) {
+FUNC(Py) popentry_new(py_type* tp, Py args, Py kws) {
     if(!no_kwargs("PopEntry", kws))
         return NULL;
     if(Py_SIZE(args) != 1)
@@ -245,11 +232,10 @@ IMPL_FUNC(Py)  pop_cleanup      (PySequence *sq, Py need_dec, Py mp) {
 }
 IMPL_FUNC(int) pop_check_fast_pair   (PySequence *sq) {
     static char const msg[] = (
-        "Population will only accept a dict or a sequence of (k,v) pairs");
-    if(pyseq_SIZE(sq)==2)
-        return 1;
-    PyValueError(msg);
-    return 0;
+        "Population() requires a dict or sequence of (k,v) pairs");
+    if(pyseq_SIZE(sq) != 2)
+        return PyTypeError(msg), 0;
+    return 1;
 }
 IMPL_FUNC(int) pop_parse_member (PySequence *sq, Py mp, size_t index) {
 
@@ -259,8 +245,11 @@ IMPL_FUNC(int) pop_parse_member (PySequence *sq, Py mp, size_t index) {
     PySequence *pq = &_pq;
     int result = -1;
 
+    #ifdef RAND_DEBUG
     if(index > pyseq_SIZE(sq))
         return PySystemError("yeah index bigger %zu", index), -1;
+    #endif
+    
     entry =  FastSequence_OB_ITEM(sq)[index];
 
     if(!py_sequence_parse(entry, pq, 1))
@@ -322,10 +311,6 @@ FUNC(Py)  population_get_mp(Py table) {
     if(!pyseq_SQ(sq))
         return NULL;
     return pop_cleanup(sq, NULL, mp);
-    mp = pop_cleanup(sq, NULL, mp);
-    if(!mp)
-        return NULL;
-    return mp;
 }
 FUNC(Py) init_pop_from_kws(Py kw) {
     Py mp;
@@ -349,7 +334,7 @@ FUNC(Py) init_pop_from_both(Py args, Py kws) {
     Py_DECREF(mp);
     return t;
 }
-FUNC(Py) population_new(PyTypeObject *tp, Py args, Py kws) {
+FUNC(Py) population_new(py_type *tp, Py args, Py kws) {
 
     Population *pop;
 
@@ -741,7 +726,7 @@ FUNC(void)   rand_shuffle    (RNGSELF, py_list *lst) {
 #   undef  b
 }
 RAND_IMPL(sample)          (RNGSELF, sample_args *a) {
-    Py result = PyList_New(a->k.i);
+    Py result = __list__(a->k.i);
     if(!result)
         return NULL;
     if(a->sq) {
@@ -899,7 +884,7 @@ FUNC(Py) choices_sample (CHOICESSELF, Py arg) {
     }
     if(!check_sample_k(&a, pop_size))
         return NULL;
-    if(!(r = PyList_New(a.k.i)))
+    if(!(r = __list__(a.k.i)))
         return NULL;
     if(!(a.indices = new_set(&a.k))) {
         Py_DECREF(r);
@@ -933,7 +918,7 @@ FUNC(Py) choices_population    (CHOICESSELF) {
 
     if(ro->next_n == rand_wchoice) {
         a.wc = ca.wc;
-        r = PyList_New(Py_SIZE(a.wc->pop));
+        r = __list__(Py_SIZE(a.wc->pop));
         if(!r)
             return NULL; 
         switch(a.wc->bisect_as) {
@@ -1341,11 +1326,25 @@ RAND_METH(flips) (RNGSELF, Py args) {
     };
     return (Py)randiter_new(rng, &a);
 }
-FUNC(Py) rsr(RNGSELF, Py arg) {
-    rng_STATE()[0] = PyLong_AsUnsignedLongLong(TUPLE_ITEMS(arg)[0]);
-    rng_STATE()[1] = PyLong_AsUnsignedLongLong(TUPLE_ITEMS(arg)[1]);
+#ifdef INCLUDE_SETSTATE
+FUNC(Py) random_set_state(Py m, Py args) {
+    Py rng;
+    uint64_t s0, s1;
+
+    if(Py_SIZE(args) != 3)
+        return PyTypeError("set_state requires 3 arguments: rng, s0, s1");
+    rng = TUPLE_ITEMS(args)[0];
+    if(!PyObject_IsInstance(rng, (Py)&Random_Type))
+        return PyTypeError("set_state requires Random object");
+    s0 = PyLong_AsUnsignedLongLong(TUPLE_ITEMS(args)[1]);
+    s1 = PyLong_AsUnsignedLongLong(TUPLE_ITEMS(args)[2]);
+    if(ERROR())
+        return NULL;
+    rng_STATE()[0] = s0;
+    rng_STATE()[1] = s1;
     prn;
 }
+#endif
 RAND_METH(flip)             (RNGSELF, Py arg)  {
 
     Py r;
@@ -1503,7 +1502,7 @@ RAND_METH(sample)           (RNGSELF, Py args) {
     return r;
 }
 RAND_METH(shuffle)          (RNGSELF, Py arg)  {
-    if(!PyList_CheckExact(arg))
+    if(!PyList_Check(arg))
         return PyTypeError("shuffle() requires a list");
     if(Py_SIZE(arg)<1)
         return PyValueError("cannot shuffle empty list");
@@ -1516,40 +1515,40 @@ RAND_METH(shuffled)         (RNGSELF, Py arg)  {
     if(!py_sequence_parse(arg, a.sq, TRUE))
         return NULL;
     if(!pyseq_SSIZE(a.sq)) {
-        a.mem = PyValueError("cannot shuffle empty sequence");
+        a.mem = PyValueError("cannot shuffle an empty sequence");
         goto end;
     }
-    if(!(a.mem = PyList_New(pyseq_SSIZE(a.sq))))
+    if(!(a.mem = __list__(pyseq_SSIZE(a.sq))))
         goto end;
     for(ssize_t i=0; i<Py_SIZE(a.mem); ++i)
         if(!(_PyList_ITEMS(a.mem)[i] = PySequence_item(a.sq, i)))
             goto end;
     rand_shuffle(rng, (py_list*)a.mem);
   end:
-    if(PyErr_Occurred()) {
+    if(ERROR())
         Py_XDECREF(a.mem);
-        a.mem = NULL;
-    }
     PySeq_CLEAR(a.sq);
     return a.mem;
 }
 RAND_METH(split)            (RNGSELF, Py args) {
+    
     py_alias_t sub, r;
+    
     DEFINE_VARARGS(split, 1, 'n', 'n') = {"n", "w"};
     VARARG(rand64_t, n, {.n=0});
     VARARG(rand64_t, w, {.n=1});
     PARSE_VARARGS();
+    
     if(n.n<0)
         return PyValueError("number of substreams must be >= 0");
     if(w.n<1)
         return PyValueError("invalid number of jumps per substream");
     if(!n.n)
-        return pbv("[]");
-    py_type *tp = Py_TYPE(rng);
-    if(!(r.ob=PyList_New(n.n)))
+        return __list__(0);
+    if(!(r.ob = __list__(n.n)))
         return NULL;
     for(ssize_t i=0; i<n.n; ++i) {
-        if(!(sub.any  = random_copy(rng, tp)))
+        if(!(sub.any  = random_copy(rng, Py_TYPE(rng))))
             goto fail;
         rng = (RandomObject*)(r.list->ob_item[i] = sub.ob);
         for(ssize_t j=0; j<w.n; ++j)
@@ -1843,7 +1842,7 @@ FUNC(Py) statf_unpackers(randiter *ri, randiter_args_t *t, Py args) {
     #undef call_impl
 }
 
-DATA(PyTypeObject, NumberSet_Type) =  {
+DATA(py_type, NumberSet_Type) =  {
     .tp_name      = "xrand.NumberSet", 
     .tp_basicsize = sizeof(setobject),
     .tp_getattro  = PyObject_GenericGetAttr, 
@@ -1853,7 +1852,7 @@ DATA(PyTypeObject, NumberSet_Type) =  {
     .tp_repr      = (reprfunc)setobject_repr,
     .tp_new       = (newfunc)setobject_new,
 };
-DATA(PyTypeObject, setiter_type) =  {
+DATA(py_type, setiter_type) =  {
     .tp_name      = "xrand.numberset_iterator", 
     .tp_basicsize = sizeof(setiter),
     .tp_getattro  = PyObject_GenericGetAttr, 
@@ -1862,7 +1861,7 @@ DATA(PyTypeObject, setiter_type) =  {
     .tp_iternext  = (iternextfunc)setiter_next,
     .tp_iter      = (getiterfunc)setiter_iter,
 };
-DATA(PyTypeObject, RandIter_Type) =  {
+DATA(py_type, RandIter_Type) =  {
     .tp_name      = QUALNAME(RANDITER_NAME),
     .tp_basicsize = sizeof(randiter),
     .tp_getattro  = PyObject_GenericGetAttr,
@@ -1872,7 +1871,7 @@ DATA(PyTypeObject, RandIter_Type) =  {
     .tp_iter      = (getiterfunc)randiter_iter,
     .tp_repr      = (reprfunc)randiter_repr,
 };
-DATA(PyTypeObject) PopEntry_Type = {
+DATA(py_type) PopEntry_Type = {
     .tp_name        = QUALNAME(POPENTRY_NAME),
     .tp_basicsize   = sizeof(popentry),
     .tp_new         = popentry_new,
@@ -1883,7 +1882,7 @@ DATA(PyTypeObject) PopEntry_Type = {
     .tp_richcompare = popentry_richcmp,
     .tp_hash        = popentry_hash,
 };
-DATA(PyTypeObject) Population_Type = {
+DATA(py_type) Population_Type = {
     .tp_name        = QUALNAME(POPULATION_NAME),
     .tp_basicsize   = sizeof(Population),
     .tp_new         = population_new,
@@ -1895,7 +1894,7 @@ DATA(PyTypeObject) Population_Type = {
     .tp_hash        = NULL,
 
 };
-DATA(PyTypeObject) Choices_Type =  {
+DATA(py_type) Choices_Type =  {
     .tp_name      = QUALNAME(CHOICES_NAME),
     .tp_basicsize = sizeof(ChoicesObject),
     .tp_getattro  = PyObject_GenericGetAttr,
@@ -1903,7 +1902,7 @@ DATA(PyTypeObject) Choices_Type =  {
     .tp_dealloc   = (destructor)choices_dealloc,
     .tp_repr      = (reprfunc)choices_repr,
 };
-DATA(PyTypeObject) Dice_Type =  {
+DATA(py_type) Dice_Type =  {
     .tp_name      = QUALNAME(DICE_NAME),
     .tp_basicsize = sizeof(DiceObject),
     .tp_getattro  = PyObject_GenericGetAttr,
@@ -1911,7 +1910,7 @@ DATA(PyTypeObject) Dice_Type =  {
     .tp_dealloc   = (destructor)dice_dealloc,
     .tp_repr      = dice_repr,
 };
-DATA(PyTypeObject) Random_Type  =  {
+DATA(py_type) Random_Type  =  {
     .tp_name      = QUALNAME(RANDOM_NAME),
     .tp_basicsize = sizeof(RandomObject),
     .tp_getattro  = PyObject_GenericGetAttr,
@@ -1919,6 +1918,7 @@ DATA(PyTypeObject) Random_Type  =  {
     .tp_new       = (newfunc)random_new,
     .tp_dealloc   = PyObject_Del, 
 };
+
 #if defined(RAND_DEBUG) && !defined(RAND_TEST_FUNCS)
 #include "tests.h"
 #endif
@@ -1926,7 +1926,7 @@ DATA(RandomObject*)RAND = NULL;
 DATA(Py) RAND_METHODS = NULL;
 #include "perf.h"
 #ifndef INCLUDE_PROFILER
-#error no profiler
+#error no profiler 
 #endif  
 FUNC(Py) reload_rng(Py m, Py self, Py meths) {
     
@@ -1938,7 +1938,7 @@ FUNC(Py) reload_rng(Py m, Py self, Py meths) {
 }
 FUNC(Py) load_rng_impl(Py m) {
 
-    DATA(PyTypeObject)   *tp = &Random_Type;
+    DATA(py_type)   *tp = &Random_Type;
     PyMethodDef *ml;
     Py meth;
     
@@ -1997,8 +1997,14 @@ FUNC(Py) load_rng(Py m) {
     prn;
     
 }
+DATA(const char) call_perf_doc[] = (
+    "perf(callable[, args, kws]) \n"
+    "Number of times callable(*args, **kws) can be called per second"
+);
+
 DATA(PyMethodDef) module_methods[] = {
 #   ifdef RAND_TEST_FUNCS
+#error no tests
     RAND_TEST_FUNCS     
     {"py_stdev", (PyCFunction)py_stdev, METH_O, NULL},
 #   endif  
@@ -2013,17 +2019,17 @@ DATA(PyMethodDef) module_methods[] = {
     DEBUG_METHOD(T),
     #endif
 
-    #ifdef INCLUDE_PROFILER
-    {"perf", (PyCFunction)call_perf, METH_VARARGS, 
-        ("perf(callable[, args, kws]) \n"
-        "Number of times callable(*args, **kws) can be called per second")},
+    #if INCLUDE_PROFILER
+    {"perf", (PyCFunction)call_perf, METH_VARARGS, call_perf_doc},
     #endif
-    
+    #if INCLUDE_SETSTATE
+    {"set_rng_state", (PyCFunction)random_set_state, METH_VARARGS, NULL},
+    #endif
      {NULL},
 };
 DATA(PyModuleDef) module_ob = {
     PyModuleDef_HEAD_INIT,
-    .m_name = "_xrand",
+    .m_name = "xrand",
     .m_doc = module_doc,
     .m_size = -1,
     .m_methods = NULL,
@@ -2032,9 +2038,7 @@ DATA(PyModuleDef) module_ob = {
     .m_clear = NULL,
     .m_free = NULL
 };
-
-
-TYPE_INIT(setobject) (Py module) {
+TYPE_INIT(setobject) (Py m) {
     static PySequenceMethods set_as_sequence = {
         .sq_length   = (lenfunc)setobject_len,
         .sq_contains = (objobjproc)setobject_contains,
@@ -2042,11 +2046,9 @@ TYPE_INIT(setobject) (Py module) {
     NumberSet_Type.tp_as_sequence = &set_as_sequence;
     if(setobject_init_meths(&NumberSet_Type))
         return 0;
-    #if defined(INCLUDE_NUMBERSET)
-    Py_INCREF(&NumberSet_Type);
-    PyModule_AddObject(module, "NumberSet", (PyObject*)&NumberSet_Type);
-    #endif
-    return TRUE;
+    if(INCLUDE_NUMBERSET)
+        PyModule_AddObject(m, "NumberSet", Py_NEWREF(&NumberSet_Type));
+    return 1;
 }
 TYPE_INIT(Population) (Py m) {
     DATA(PySequenceMethods) as_sq = {
@@ -2092,8 +2094,8 @@ TYPE_INIT(Choices)(Py module) {
     return 1;
 }
 
-Py PyInit__xrand(void){
-   
+Py PyInit_xrand(void){
+    
     Py self;
 
     if(!(self=PyModule_Create(&module_ob)))
@@ -2128,7 +2130,15 @@ Py PyInit__xrand(void){
     CALL_TYPE_INIT(Dice_Type,       0, dice);
     CALL_TYPE_INIT(NumberSet_Type,  0, setobject);
     CALL_TYPE_INIT(setiter_type,    0, setiter);
-    
+    int g = 1;
+    if(((void*)random_next) == ((void*)xoroshiro128))
+        g = PyModule_AddObject(self, "_generator", __format__("xoroshiro"));
+    else if(((void*)random_next) == ((void*)xorshift128))
+        g = PyModule_AddObject(self, "_generator", __format__("xorshift"));
+    else
+        return PySystemError("not possible");
+    if(g != 0)
+        goto fail;
     PyModule_AddFunctions(self, module_methods);
     INIT_SEED.i = system_clock();
     Py fin = load_rng(self);
