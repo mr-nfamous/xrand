@@ -935,32 +935,6 @@ BOOL_FUNC(unicode_get_item)    (PySequence *sq, ssize_t index, Object *item) {
             return FALSE;
     }
     return PySystemError("unicode.maxsize was not 2 or 4..."), NEG1;
-/*
-    ssize_t index = i.v->n;
-    if(index < 0 || index >= sq->size)
-        return 1;
-    UnicodeSequence us = sq->as.unicode;
-    unicode_data letter;
-    switch(us.maxsize) {
-        case 2:
-            letter.letter = us.data.ucs2[index];
-            break;
-        case 4:
-            letter.letter = us.data.ucs4[index];
-        default:
-            PySystemError("unicode_get_item was used instead of latin1");
-            return -1;
-    }   
-    if(letter.letter < 256) {
-        if(!( *ob = Py_NEWREF(LATIN1[letter.letter]))) 
-            return PySystemError("LATIN1 character cache was deallocated"), -1;
-        return 0;
-    }
-    if(!(*ob = PyUnicode_New(1, letter.letter)))
-        return -1;
-    unicode_data new_letter = {.any = PyUnicode_DATA(*ob)};
-    *new_letter.ucs4 = letter.letter;
-    return 0; */
 }
 BOOL_FUNC(py_seq_parse_range)  (py_range *range, PySequence *sq) {   
     if(  !(py_int_as_sizes_t(range->length, pyseq_SIZES(sq), 'n')
