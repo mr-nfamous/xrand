@@ -687,20 +687,45 @@ IMPL_FUNC(void)   random_digits(RNGSELF, digit *p, size_t n) {
 #   else
 #       define FAST_DIGITS(x) (x&D0) | (x&D1) << 2
 #   endif
-A:
+    A:
     if(!n) 
         return;
     x.u = random_next(rng) >> 4;   
     if(n>=DPR) {
+        #ifdef RAND32
+        uint64_t av, bv, cv;
+        av = x.u & 0xfffe00000000000;
+        bv = av << 3;
+        av = x.u & 0x0001fffc0000000;
+        cv = av << 2;
+        bv|= cv;
+        av = x.u & 0x00000003fff8000;
+        cv = av << 2;
+        cv = av << 1;
+        av = x.u & 0x000000000007fff;
+        rand64_t const v = {.u = av | bv | cv};
+        p[0] = v.p[0];
+        p[1] = v.p[1];
+        p[2] = v.p[2];
+        p[3] = v.p[3];
+        p += DPR;
+        #else
         ((rand64_t*)p)->u = FAST_DIGITS(x.u);
         ++((rand64_t*)p);
+        #endif
         n -= DPR;
         goto A;
     }
-    while(n--) {
-        *p++ = (digit)x.ud.d0;
-        x.u>>=PyLong_SHIFT;
-    }
+    goto C;
+    B:
+    if(!n)
+        return;
+    x.u >>= PyLong_SHIFT;
+    ++p;
+    --n;
+    C:
+    *p = (digit)(x.u & PyLong_MASK);
+    goto B;
 }
 IMPL_FUNC(void)   random_bytes(RNGSELF, uint8_t *p, size_t n) {
     /*
